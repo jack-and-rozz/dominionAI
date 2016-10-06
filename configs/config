@@ -1,0 +1,17 @@
+#Dataset
+source_data_dir=dataset/gain
+train_file=train.txt
+valid_file=valid.txt
+test_file=test.txt
+
+#LSTM Parameters
+hidden_size=500
+num_layers=2
+keep_prob=0.75
+
+# training parameters
+batch_size=512
+steps_per_checkpoint=1000
+steps_per_interruption=0
+max_step=10000
+max_to_keep=5
