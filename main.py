@@ -15,7 +15,9 @@ from logging import FileHandler
 
 import numpy as np
 from six.moves import xrange  # pylint: disable=redefined-builtin
+
 import tensorflow as tf
+from tensorflow.python.platform import gfile
 
 import data_utils
 import nn_model
@@ -32,9 +34,10 @@ tf.app.flags.DEFINE_string("valid_file", "", "Valid file")
 tf.app.flags.DEFINE_string("test_file", "", "Test file")
 
 tf.app.flags.DEFINE_string("train_dir", "models/tmp", "Training directory.")
+tf.app.flags.DEFINE_string("task_name", "Gain", "")
 tf.app.flags.DEFINE_float("keep_prob", 1.0,
                           "the keeping probability of active neurons in dropout")
-tf.app.flags.DEFINE_float("learning_rate", 0.5, "Learning rate.")
+tf.app.flags.DEFINE_float("learning_rate", 1e-4, "Learning rate.")
 tf.app.flags.DEFINE_float("learning_rate_decay_factor", 0.99,
                           "Learning rate decays by this much. This paramerters is not used when using AdamOptimizer.")
 tf.app.flags.DEFINE_float("max_gradient_norm", 5.0,
@@ -65,6 +68,7 @@ FLAGS = tf.app.flags.FLAGS
 TMP_FLAGS = ['mode', 'log_file']
 if FLAGS.log_file: 
   logger = utils.logManager(handler=FileHandler(FLAGS.train_dir + '/' + FLAGS.log_file))
+  logger = utils.logManager()
 else:
   logger = utils.logManager()
 
@@ -85,30 +89,111 @@ def save_config():
       if not k in TMP_FLAGS:
         f.write('%s=%s\n' % (k, str(v)))
 
+@utils.timewatch(logger)
 def create_model(sess, n_feature, n_target):
-  model = nn_model.DominionBaseModel(FLAGS, 
-                                     n_feature=n_feature,
-                                     n_target=n_target,
-                                     mode="train")
+
+  model = nn_model.GainModel(FLAGS, 
+                             n_feature=n_feature,
+                             n_target=n_target,
+                             mode="train")
+  ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir + '/checkpoints')
+  if ckpt and gfile.Exists(ckpt.model_checkpoint_path):
+    logger.info("Reading model parameters from %s" % ckpt.model_checkpoint_path)
+    saver = tf.train.Saver(tf.all_variables(), max_to_keep=FLAGS.max_to_keep)
+    saver.restore(sess, ckpt.model_checkpoint_path)
+  else:
+    logger.info("Created model with fresh parameters.")
+    tf.initialize_all_variables().run()
+
   return model
 
-  
-def train_random():
+
+@utils.timewatch(logger)  
+def gain_test():
+  FLAGS.batch_size = 1
+
   cardlist = data_utils.read_cardlist()
-  #_, train_data = data_utils.read_log(FLAGS.source_data_dir + '/' + FLAGS.train_file)
-  task_name, valid_data = data_utils.read_log(FLAGS.source_data_dir + '/' + FLAGS.valid_file)
-  valid_batch = data_utils.BatchManager(task_name, valid_data)
-  #data_utils.explain_state(valid_data[0])
+  _, test_data = data_utils.read_log(FLAGS.source_data_dir + '/' + FLAGS.test_file)
+  test_batch = data_utils.BatchManager(test_data)
+  n_feature = test_batch.n_feature
+  n_target = test_batch.n_target
   with tf.Session(config=tf.ConfigProto(log_device_placement=False)) as sess:
-    n_feature = valid_batch.n_feature
-    n_target = valid_batch.n_target
     model = create_model(sess, n_feature, n_target)
-    print model
 
-  pass
+    results = []
+    for i in xrange(200):
+      print "--- Test %d --- "% i
+      input_data, targets = test_batch.get(FLAGS.batch_size)
+      answer = sorted(model.buy(sess, input_data))
+      correct_answer = sorted(test_data[i]['answer'])
+      while True:
+        if 0 in answer and len(answer) > 1:
+          answer.remove(0)
+        else:
+          break
+      data_utils.explain_state(input_data[0], answer, correct_answer)
+      results.append(answer == correct_answer)
+    print 1.0 * results.count(True) / len(results)
 
-def test():
-    pass
+@utils.timewatch(logger)
+def train_random():
+  t = time.time()
+  _, train_data = data_utils.read_log(FLAGS.source_data_dir + '/' + FLAGS.train_file)
+  _, valid_data = data_utils.read_log(FLAGS.source_data_dir + '/' + FLAGS.valid_file)
+  logger.info("Reading data : %f sec" % (time.time() - t))
+  train_batch = data_utils.BatchManager(train_data)
+  valid_batch = data_utils.BatchManager(valid_data)
+
+  with tf.Session(config=tf.ConfigProto(log_device_placement=False)) as sess:
+    summary_writer = tf.train.SummaryWriter(FLAGS.train_dir + '/summaries', 
+                                            graph=sess.graph)
+    n_feature = train_batch.n_feature
+    n_target = train_batch.n_target
+    model = create_model(sess, n_feature, n_target)
+    # 以降、opsの定義禁止
+    t_ave_loss, step_time = 0.0, 0.0
+    logits_op, loss_op, train_op = model.logits_op, model.loss_op, model.train_op
+    summary_op = tf.merge_all_summaries()
+    logger.info("Start training")
+    while True:
+      step = model.global_step.eval()
+      if step > FLAGS.max_step:
+        break;
+      input_data, targets = train_batch.get(FLAGS.batch_size)
+      
+      train_feed = {
+        model.input_data : input_data,
+        model.targets : targets,
+      }
+      #print input_data, targets
+      t = time.time()
+      t_logits, t_loss, _ = sess.run([logits_op, loss_op, train_op], 
+                                     train_feed)
+      step_time += (time.time() - t) / FLAGS.steps_per_checkpoint
+      t_ave_loss += t_loss / FLAGS.steps_per_checkpoint if step != 0 else t_loss 
+      if step % FLAGS.steps_per_checkpoint == 0:
+        input_data, targets = valid_batch.get(FLAGS.batch_size)
+        valid_feed = {
+          model.input_data : input_data,
+          model.targets : targets,
+        }
+        t_ave_ppx = math.exp(t_ave_loss) if t_ave_loss < 300 else float('inf')
+
+        v_logits, v_loss = sess.run([logits_op, loss_op], valid_feed)
+        v_ppx = math.exp(v_loss) if v_loss < 300 else float('inf')
+        logger.info("global step %d step-time %.4f" % (model.global_step.eval() - 1,
+                                                       step_time))
+        logger.info("Train ppx %.4f" % t_ave_ppx)
+        logger.info("Valid ppx %.4f" % v_ppx)
+        t_ave_loss, step_time = 0.0, 0.0
+
+        #summary_str = sess.run(summary_op, feed_dict=train_feed)
+        #summary_writer.add_summary(summary_str, step)
+
+        # Save checkpoint
+        saver = tf.train.Saver(tf.all_variables(), max_to_keep=FLAGS.max_to_keep)
+        checkpoint_path = os.path.join(FLAGS.train_dir, "checkpoints/model.ckptd")
+        saver.save(sess, checkpoint_path, global_step=model.global_step)
 
 def main(_):
     create_dir()
@@ -118,7 +203,7 @@ def main(_):
           train_random()
     elif FLAGS.mode == '--test':
           logger.info("[ TEST ]")
-          test()
+          gain_test()
     pass
 
 if __name__ == "__main__":

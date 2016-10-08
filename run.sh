@@ -55,6 +55,7 @@ run(){
 --source_data_dir=$source_data_dir
 --steps_per_checkpoint=$steps_per_checkpoint
 --steps_per_interruption=$steps_per_interruption
+--task_name=$task_name
 "
     echo $params
     python -B main.py $params

@@ -2,3 +2,5 @@ dataset/*
 models/*
 .DS_Store
 seq2seq_model
+.#*
+nohup.out
