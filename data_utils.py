@@ -178,7 +178,7 @@ class BatchManager():
       if not 'answer' in d:
         d['answer'] = [0]
       _target = utils.zero_one_vector(d['answer'], self.n_target)
-      _target = np.array(_target) / sum(_target)
+      _target = np.array(_target) #/ sum(_target)
       batched_data.append((_input, _target))
     return batched_data
     

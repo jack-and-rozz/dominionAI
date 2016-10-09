@@ -1,4 +1,4 @@
-# coding: utf-8
+
 #coding: utf-8
 # Copyright 2015 Google Inc. All Rights Reserved.
 #
@@ -68,7 +68,7 @@ FLAGS = tf.app.flags.FLAGS
 TMP_FLAGS = ['mode', 'log_file']
 if FLAGS.log_file: 
   logger = utils.logManager(handler=FileHandler(FLAGS.train_dir + '/' + FLAGS.log_file))
-  #logger = utils.logManager()
+  logger = utils.logManager()
 else:
   logger = utils.logManager()
 

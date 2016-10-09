@@ -109,8 +109,9 @@ class GainModel(DominionBaseModel):
     supply_ids = du.included_supplies(input_data)
     game_info = du.get_game_info(input_data, supply_ids)
     cost = game_info['cost'][supply_ids.index(target)]
+    minusCost = game_info['minusCost']
     idx = du.get_feature_start_idx()
-    next_input[idx['coin']] -= cost
+    next_input[idx['coin']] -= max(cost-minusCost, 0)
     next_input[idx['buy']] -= 1
     if target != 0:
       next_input[idx['discard'] + target] += 1
