@@ -4,6 +4,7 @@ import xml.etree.ElementTree as ET
 from public import utils
 from public import config
 from public.config import RED, YELLOW, BLUE, BOLD
+import collections 
 
 # 入力特徴量はFEATURES + stateVec
 FEATURES = ['coin', 'buy', 'minusCost', 'turn']
@@ -61,6 +62,7 @@ def explain_state(input_data, answer=None, correct_answer=None):
   coin = input_data[FEATURES.index('coin')]
   buy = input_data[FEATURES.index('buy')]
   turn = input_data[FEATURES.index('turn')]
+  minusCost = input_data[FEATURES.index('minusCost')]
 
   supply_ids = included_supplies(input_data)
   d = get_game_info(input_data, supply_ids)
@@ -74,7 +76,7 @@ def explain_state(input_data, answer=None, correct_answer=None):
   print ",  ".join(["%s(%s)[%d]" % (CARDLIST[_id]["名前"], CARDLIST[_id]["コスト"], supply[i+7])
                     for i, _id in enumerate(supply_ids[7:])])
   
-  print "<Player>   " + config.color("[coin:%d, buy:%d, turn:%d]" % (coin, buy, turn), BOLD + RED)
+  print "<Player>   " + config.color("[coin:%d, buy:%d, turn:%d, minusCost:%d]" % (coin, buy, turn, minusCost), BOLD + RED)
   print ",  ".join(["%s[%d]" % (CARDLIST[_id]["名前"], playercards[i]) for i, _id in enumerate(supply_ids) if playercards[i] != 0 ])
 
   print "<Enemy>"

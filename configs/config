@@ -12,9 +12,9 @@ keep_prob=0.75
 # training parameters
 #batch_size=512
 batch_size=300
-steps_per_checkpoint=2000
+steps_per_checkpoint=5000
 steps_per_interruption=0
 learning_rate=0.0001
-max_step=20000
-max_to_keep=1
+max_step=50000
+max_to_keep=8
 task_name=Gain

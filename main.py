@@ -68,7 +68,7 @@ FLAGS = tf.app.flags.FLAGS
 TMP_FLAGS = ['mode', 'log_file']
 if FLAGS.log_file: 
   logger = utils.logManager(handler=FileHandler(FLAGS.train_dir + '/' + FLAGS.log_file))
-  logger = utils.logManager()
+  #logger = utils.logManager()
 else:
   logger = utils.logManager()
 
@@ -121,7 +121,7 @@ def gain_test():
     model = create_model(sess, n_feature, n_target)
 
     results = []
-    for i in xrange(200):
+    for i in xrange(test_batch.size):
       print "--- Test %d --- "% i
       input_data, targets = test_batch.get(FLAGS.batch_size)
       answer = sorted(model.buy(sess, input_data))
@@ -145,20 +145,19 @@ def train_random():
   valid_batch = data_utils.BatchManager(valid_data)
 
   with tf.Session(config=tf.ConfigProto(log_device_placement=False)) as sess:
-    summary_writer = tf.train.SummaryWriter(FLAGS.train_dir + '/summaries', 
-                                            graph=sess.graph)
     n_feature = train_batch.n_feature
     n_target = train_batch.n_target
     model = create_model(sess, n_feature, n_target)
+
+    summary_writer = tf.train.SummaryWriter(FLAGS.train_dir + '/summaries', 
+                                            graph=sess.graph)
+    saver = tf.train.Saver(tf.all_variables(), max_to_keep=FLAGS.max_to_keep)
     # 以降、opsの定義禁止
     t_ave_loss, step_time = 0.0, 0.0
     logits_op, loss_op, train_op = model.logits_op, model.loss_op, model.train_op
     summary_op = tf.merge_all_summaries()
     logger.info("Start training")
     while True:
-      step = model.global_step.eval()
-      if step > FLAGS.max_step:
-        break;
       input_data, targets = train_batch.get(FLAGS.batch_size)
       
       train_feed = {
@@ -170,31 +169,37 @@ def train_random():
       t_logits, t_loss, _ = sess.run([logits_op, loss_op, train_op], 
                                      train_feed)
       step_time += (time.time() - t) / FLAGS.steps_per_checkpoint
+      step = model.global_step.eval()
       t_ave_loss += t_loss / FLAGS.steps_per_checkpoint if step != 0 else t_loss 
-      if step % FLAGS.steps_per_checkpoint == 0:
-        input_data, targets = valid_batch.get(FLAGS.batch_size)
-        valid_feed = {
-          model.input_data : input_data,
-          model.targets : targets,
-        }
+
+      if step % (FLAGS.steps_per_checkpoint) == 0:
         t_ave_ppx = math.exp(t_ave_loss) if t_ave_loss < 300 else float('inf')
 
-        v_logits, v_loss = sess.run([logits_op, loss_op], valid_feed)
-        v_ppx = math.exp(v_loss) if v_loss < 300 else float('inf')
-        logger.info("global step %d step-time %.4f" % (model.global_step.eval() - 1,
+        n_eval = int(valid_batch.size / FLAGS.batch_size)
+        v_ave_ppx = 0.0
+        for _ in xrange(n_eval):
+          input_data, targets = valid_batch.get(FLAGS.batch_size)
+          valid_feed = {
+            model.input_data : input_data,
+            model.targets : targets,
+          }
+          
+          v_logits, v_loss = sess.run([logits_op, loss_op], valid_feed)
+          v_ave_ppx += math.exp(v_loss)/(n_eval) if v_loss < 300 else float('inf')
+        logger.info("global step %d step-time %.4f" % (step,
                                                        step_time))
         logger.info("Train ppx %.4f" % t_ave_ppx)
-        logger.info("Valid ppx %.4f" % v_ppx)
+        logger.info("Valid ppx %.4f" % v_ave_ppx)
         t_ave_loss, step_time = 0.0, 0.0
 
         #summary_str = sess.run(summary_op, feed_dict=train_feed)
         #summary_writer.add_summary(summary_str, step)
-
         # Save checkpoint
-        saver = tf.train.Saver(tf.all_variables(), max_to_keep=FLAGS.max_to_keep)
-        checkpoint_path = os.path.join(FLAGS.train_dir, "checkpoints/model.ckptd")
+        checkpoint_path = os.path.join(FLAGS.train_dir, "checkpoints/model.ckpt")
         saver.save(sess, checkpoint_path, global_step=model.global_step)
-
+      if step >= FLAGS.max_step:
+        break;
+      
 def main(_):
     create_dir()
     save_config()

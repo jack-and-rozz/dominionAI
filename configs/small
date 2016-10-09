@@ -5,7 +5,7 @@ valid_file=valid.txt
 test_file=test1k.txt
 
 #LSTM Parameters
-hidden_size=200
+hidden_size=500
 num_layers=2
 keep_prob=1.0
 # training parameters
