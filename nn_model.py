@@ -18,13 +18,18 @@ class DominionBaseModel(object):
     self.global_step = tf.Variable(0, name='global_step', trainable=False)
     self.max_to_keep = flags.max_to_keep
 
-    self.input_data = tf.placeholder(tf.float32, [batch_size, n_feature])
-    self.targets = tf.placeholder(tf.float32, [batch_size, n_target])
+    self.train_inputs = tf.placeholder(tf.float32, [None, n_feature])
+    self.train_targets = tf.placeholder(tf.float32, [None, n_target])
+    self.test_inputs = tf.placeholder(tf.float32, [None, n_feature])
+    self.test_targets = tf.placeholder(tf.float32, [None, n_target])
 
-    self.logits_op = self.inference()
-    self.loss_op = self.loss(self.logits_op)
-    self.train_op = self.optimize(self.loss_op)
-    self.probs_op = tf.nn.softmax(self.logits_op)
+    self.train_logits_op = self.inference(self.train_inputs)
+    self.train_loss_op = self.loss(self.train_logits_op, self.train_targets)
+    self.train_op = self.optimize(self.train_loss_op)
+
+    self.test_logits_op = self.inference(self.test_inputs, reuse=True)
+    self.test_loss_op = self.loss(self.test_logits_op, self.test_targets)
+    self.test_probs_op = tf.nn.softmax(self.test_logits_op)
 
   def __str__(self):
     return str(self.__dict__)
@@ -35,8 +40,7 @@ class DominionBaseModel(object):
     train_op = optimizer.minimize(loss, global_step=self.global_step)
     return train_op
 
-  def loss(self, logits):
-    labels = self.targets
+  def loss(self, logits, labels):
     cross_entropy = tf.nn.softmax_cross_entropy_with_logits(logits,
                                                             labels,
                                                             name='xentropy')
@@ -44,42 +48,51 @@ class DominionBaseModel(object):
     return loss
 
 
-  def inference(self):
+  def inference(self, _inputs, reuse=None):
     hidden = []
-    with vs.variable_scope('hidden0') as scope:
+    with vs.variable_scope('hidden0', reuse=reuse) as scope:
       w = tf.get_variable("weights", [self.n_feature, self.hidden_size])
       b = tf.get_variable("bias", [self.hidden_size])
-      h = tf.nn.sigmoid(tf.matmul(self.input_data, w) + b)
+      h = tf.nn.sigmoid(tf.matmul(_inputs, w) + b)
       hidden.append(h)
 
     for i in xrange(1, self.num_layers):
-      with vs.variable_scope('hidden%d' % i) as scope:
+      with vs.variable_scope('hidden%d' % i, reuse=reuse) as scope:
         w = tf.get_variable("weights", [self.hidden_size, self.hidden_size])
         b = tf.get_variable("bias", [self.hidden_size])
         h = tf.nn.sigmoid(tf.matmul(hidden[i-1], w) + b)
         hidden.append(h)
 
-    with vs.variable_scope('projection') as scope:
+    with vs.variable_scope('projection', reuse=reuse) as scope:
       w = tf.get_variable("weights", [self.hidden_size, self.n_target])
       b = tf.get_variable("bias", [self.n_target])
       logits = tf.nn.sigmoid(tf.matmul(hidden[-1], w) + b)
     return logits
 
+  def change_batchsize(self, batch_size, sess):
+    pass
+    #self.input_data = tf.placeholder(tf.float32, [batch_size, self.n_feature])
+    #self.targets = tf.placeholder(tf.float32, [batch_size, self.n_target])
+    #self.logits_op = self.inference()
+    #self.loss_op = self.loss(self.logits_op)
+    #self.train_op = self.optimize(self.loss_op)
+    #self.probs_op = tf.nn.softmax(self.logits_op)
+
 class GainModel(DominionBaseModel):
-  def buy(self, sess, input_data):
+  def buy(self, sess, input_data, depth=0):
     #とりあえずバッチ実行でテストは考えない
     test_feed = {
-      self.input_data : input_data,
+      self.test_inputs : input_data,
     }
     
     #t_logits = sess.run(self.logits_op, test_feed)
     #target = self.select_validly(input_data[0], t_logits[0])
-    t_probs = sess.run(self.probs_op, test_feed)
-    target = self.select_validly(input_data[0], t_probs[0])
+    t_probs = sess.run(self.test_probs_op, test_feed)
+    target, probs = self.select_validly(input_data[0], t_probs[0])
     next_input, continuable = self.update_state(input_data[0], target)
-    res = [target]
+    res = [(depth, target, probs)]
     if continuable:
-      res.extend(self.buy(sess, next_input))
+      res.extend(self.buy(sess, next_input, depth+1))
     return res
 
   def select_validly(self, input_data, logits):
@@ -98,9 +111,8 @@ class GainModel(DominionBaseModel):
     
     probs = [(game_info['name'][i], supply_logits[i]) for i in xrange(len(supply_ids)) if supply_logits[i] >= 0.01 ]
     probs = sorted(probs, key=lambda x:-x[1])
-    print "<Buy Probability>"
-    print ", ".join(["%s(%.4f)" % (name, prob) for (name, prob) in probs])
-    return supply_ids[np.argmax(supply_logits)]
+    probs_with_name = ", ".join(["%s(%.4f)" % (name, prob) for (name, prob) in probs])
+    return supply_ids[np.argmax(supply_logits)], probs_with_name
 
   def update_state(self, input_data, target):
     #<other_features> = ['coin', 'buy', 'minusCost', 'turn']

@@ -70,25 +70,24 @@ def explain_state(input_data, answer=None, correct_answer=None):
   playercards = d['deck'] + d['hand'] + d['discard'] + d['field']
   enemycards = d['enemy']
   supply = d['supply']
-  print "<Supply>"
-  print ",  ".join(["%s(%s)[%d]" % (CARDLIST[_id]["名前"], CARDLIST[_id]["コスト"], supply[i])
-                    for i, _id in enumerate(supply_ids[:7])])
-  print ",  ".join(["%s(%s)[%d]" % (CARDLIST[_id]["名前"], CARDLIST[_id]["コスト"], supply[i+7])
-                    for i, _id in enumerate(supply_ids[7:])])
+  txt = ""
+  txt += "<Supply>"
+  txt += "\n" +  ",  ".join(["%s(%s)[%d]" % (CARDLIST[_id]["名前"], CARDLIST[_id]["コスト"], supply[i]) for i, _id in enumerate(supply_ids[:7])])
+  txt += "\n" +  ",  ".join(["%s(%s)[%d]" % (CARDLIST[_id]["名前"], CARDLIST[_id]["コスト"], supply[i+7]) for i, _id in enumerate(supply_ids[7:])])
   
-  print "<Player>   " + config.color("[coin:%d, buy:%d, turn:%d, minusCost:%d]" % (coin, buy, turn, minusCost), BOLD + RED)
-  print ",  ".join(["%s[%d]" % (CARDLIST[_id]["名前"], playercards[i]) for i, _id in enumerate(supply_ids) if playercards[i] != 0 ])
+  txt += "\n" +  "<Player>   " + config.color("[coin:%d, buy:%d, turn:%d, minusCost:%d]" % (coin, buy, turn, minusCost), BOLD + RED)
+  txt += "\n" +  ",  ".join(["%s[%d]" % (CARDLIST[_id]["名前"], playercards[i]) for i, _id in enumerate(supply_ids) if playercards[i] != 0 ])
 
-  print "<Enemy>"
-  print ",  ".join(["%s[%d]" % (CARDLIST[_id]["名前"], enemycards[i]) for i, _id in enumerate(supply_ids) if enemycards[i] != 0 ])
+  txt += "\n" +  "<Enemy>"
+  txt += "\n" +  ",  ".join(["%s[%d]" % (CARDLIST[_id]["名前"], enemycards[i]) for i, _id in enumerate(supply_ids) if enemycards[i] != 0 ])
   if answer:
-    print "<Buy>"
-    print ", ".join(["%s" % CARDLIST[_id]["名前"] for _id in answer])
+    txt += "\n" +  "<Buy>"
+    txt += "\n" +  ", ".join(["%s" % CARDLIST[_id]["名前"] for _id in answer])
   if correct_answer:
-    print "<Correct Answer> "
-    print ", ".join(["%s" % CARDLIST[_id]["名前"] for _id in correct_answer])
-  print ""
-
+    txt += "\n" +  "<Correct Answer> "
+    txt += "\n" +  ", ".join(["%s" % CARDLIST[_id]["名前"] for _id in correct_answer])
+  txt += "\n"
+  return txt
   
 
 def read_log(file_path):

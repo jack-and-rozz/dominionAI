@@ -109,34 +109,46 @@ def create_model(sess, n_feature, n_target):
 
 
 @utils.timewatch(logger)  
-def gain_test():
-  FLAGS.batch_size = 1
+def gain_test(sess, model=None):
+
 
   cardlist = data_utils.read_cardlist()
   _, test_data = data_utils.read_log(FLAGS.source_data_dir + '/' + FLAGS.test_file)
   test_batch = data_utils.BatchManager(test_data)
   n_feature = test_batch.n_feature
   n_target = test_batch.n_target
-  with tf.Session(config=tf.ConfigProto(log_device_placement=False)) as sess:
+  succeeded = []
+  result_texts = []
+  if not model:
+    FLAGS.batch_size = 1
     model = create_model(sess, n_feature, n_target)
 
-    results = []
-    for i in xrange(test_batch.size):
-      print "--- Test %d --- "% i
-      input_data, targets = test_batch.get(FLAGS.batch_size)
-      answer = sorted(model.buy(sess, input_data))
-      correct_answer = sorted(test_data[i]['answer'])
-      while True:
-        if 0 in answer and len(answer) > 1:
-          answer.remove(0)
-        else:
-          break
-      data_utils.explain_state(input_data[0], answer, correct_answer)
-      results.append(answer == correct_answer)
-    print 1.0 * results.count(True) / len(results)
+  for i in xrange(test_batch.size):
+    input_data, targets = test_batch.get(FLAGS.batch_size)
+    buy_results = sorted(model.buy(sess, input_data))
+    answer = [i for (_, i, _) in buy_results]
+    correct_answer = sorted(test_data[i]['answer'])
+    while True:
+      if 0 in answer and len(answer) > 1:
+        answer.remove(0)
+      else:
+        break
+    result_text = data_utils.explain_state(input_data[0], answer, correct_answer)
+    succeeded.append(answer == correct_answer)
+    result_texts.append(result_text)
+    
+  with open(FLAGS.train_dir + "/tests/result.ep%d" % model.global_step.eval(), 'w') as f:
+    for i, t in enumerate(result_texts):
+      f.write("--- Test %d --- " % i + "\n")
+      f.write(t + "\n")
+    f.write("\n")
+    f.write("Success Rate: %.4f (%d/%d)" % (1.0 * succeeded.count(True)/len(succeeded), 
+                                            succeeded.count(True), 
+                                            len(succeeded)))
+    f.write("\n")
 
 @utils.timewatch(logger)
-def train_random():
+def train_random(sess, test_func=None):
   t = time.time()
   _, train_data = data_utils.read_log(FLAGS.source_data_dir + '/' + FLAGS.train_file)
   _, valid_data = data_utils.read_log(FLAGS.source_data_dir + '/' + FLAGS.valid_file)
@@ -144,72 +156,75 @@ def train_random():
   train_batch = data_utils.BatchManager(train_data)
   valid_batch = data_utils.BatchManager(valid_data)
 
-  with tf.Session(config=tf.ConfigProto(log_device_placement=False)) as sess:
-    n_feature = train_batch.n_feature
-    n_target = train_batch.n_target
-    model = create_model(sess, n_feature, n_target)
-
-    summary_writer = tf.train.SummaryWriter(FLAGS.train_dir + '/summaries', 
+  n_feature = train_batch.n_feature
+  n_target = train_batch.n_target
+  model = create_model(sess, n_feature, n_target)
+  
+  summary_writer = tf.train.SummaryWriter(FLAGS.train_dir + '/summaries', 
                                             graph=sess.graph)
-    saver = tf.train.Saver(tf.all_variables(), max_to_keep=FLAGS.max_to_keep)
-    # 以降、opsの定義禁止
-    t_ave_loss, step_time = 0.0, 0.0
-    logits_op, loss_op, train_op = model.logits_op, model.loss_op, model.train_op
-    summary_op = tf.merge_all_summaries()
-    logger.info("Start training")
-    while True:
-      input_data, targets = train_batch.get(FLAGS.batch_size)
+  saver = tf.train.Saver(tf.all_variables(), max_to_keep=FLAGS.max_to_keep)
+  # 以降、opsの定義禁止
+  t_ave_loss, step_time = 0.0, 0.0
+  logits_op, loss_op, train_op = model.train_logits_op, model.train_loss_op, model.train_op
+  summary_op = tf.merge_all_summaries()
+  logger.info("Start training")
+
+  while True:
+    input_data, targets = train_batch.get(FLAGS.batch_size)
+    
+    train_feed = {
+      model.train_inputs : input_data,
+      model.train_targets : targets,
+    }
+    #print input_data, targets
+    t = time.time()
+    t_logits, t_loss, _ = sess.run([logits_op, loss_op, train_op], 
+                                   train_feed)
+    step_time += (time.time() - t) / FLAGS.steps_per_checkpoint
+    step = model.global_step.eval()
+    t_ave_loss += t_loss / FLAGS.steps_per_checkpoint if step != 0 else t_loss 
+    
+    if step % (FLAGS.steps_per_checkpoint) == 0:
+      t_ave_ppx = math.exp(t_ave_loss) if t_ave_loss < 300 else float('inf')
       
-      train_feed = {
-        model.input_data : input_data,
-        model.targets : targets,
-      }
-      #print input_data, targets
-      t = time.time()
-      t_logits, t_loss, _ = sess.run([logits_op, loss_op, train_op], 
-                                     train_feed)
-      step_time += (time.time() - t) / FLAGS.steps_per_checkpoint
-      step = model.global_step.eval()
-      t_ave_loss += t_loss / FLAGS.steps_per_checkpoint if step != 0 else t_loss 
+      n_eval = int(valid_batch.size / FLAGS.batch_size)
+      v_ave_ppx = 0.0
+      for _ in xrange(n_eval):
+        input_data, targets = valid_batch.get(FLAGS.batch_size)
+        valid_feed = {
+          model.train_inputs : input_data,
+          model.train_targets : targets,
+        }
+        v_logits, v_loss = sess.run([logits_op, loss_op], valid_feed)
+        v_ave_ppx += math.exp(v_loss)/(n_eval) if v_loss < 300 else float('inf')
 
-      if step % (FLAGS.steps_per_checkpoint) == 0:
-        t_ave_ppx = math.exp(t_ave_loss) if t_ave_loss < 300 else float('inf')
+      logger.info("global step %d step-time %.4f" % (step,
+                                                     step_time))
+      logger.info("Train ppx %.4f" % t_ave_ppx)
+      logger.info("Valid ppx %.4f" % v_ave_ppx)
+      t_ave_loss, step_time = 0.0, 0.0
+      if test_func:
+        logger.info("Performing tests...")
+        test_func(sess, model)
 
-        n_eval = int(valid_batch.size / FLAGS.batch_size)
-        v_ave_ppx = 0.0
-        for _ in xrange(n_eval):
-          input_data, targets = valid_batch.get(FLAGS.batch_size)
-          valid_feed = {
-            model.input_data : input_data,
-            model.targets : targets,
-          }
-          
-          v_logits, v_loss = sess.run([logits_op, loss_op], valid_feed)
-          v_ave_ppx += math.exp(v_loss)/(n_eval) if v_loss < 300 else float('inf')
-        logger.info("global step %d step-time %.4f" % (step,
-                                                       step_time))
-        logger.info("Train ppx %.4f" % t_ave_ppx)
-        logger.info("Valid ppx %.4f" % v_ave_ppx)
-        t_ave_loss, step_time = 0.0, 0.0
+      #summary_str = sess.run(summary_op, feed_dict=train_feed)
+      #summary_writer.add_summary(summary_str, step)
+      # Save checkpoint
+      checkpoint_path = os.path.join(FLAGS.train_dir, "checkpoints/model.ckpt")
+      saver.save(sess, checkpoint_path, global_step=model.global_step)
+    if step >= FLAGS.max_step:
+      break;
 
-        #summary_str = sess.run(summary_op, feed_dict=train_feed)
-        #summary_writer.add_summary(summary_str, step)
-        # Save checkpoint
-        checkpoint_path = os.path.join(FLAGS.train_dir, "checkpoints/model.ckpt")
-        saver.save(sess, checkpoint_path, global_step=model.global_step)
-      if step >= FLAGS.max_step:
-        break;
-      
 def main(_):
-    create_dir()
-    save_config()
+  create_dir()
+  save_config()
+  with tf.Session(config=tf.ConfigProto(log_device_placement=False)) as sess:
     if FLAGS.mode == '--train_random':
-          logger.info("[ TRAIN RANDOM ]")
-          train_random()
+      logger.info("[ TRAIN RANDOM ]")
+      train_random(sess, gain_test)
     elif FLAGS.mode == '--test':
-          logger.info("[ TEST ]")
-          gain_test()
-    pass
+      logger.info("[ TEST ]")
+      gain_test(sess)
 
 if __name__ == "__main__":
   tf.app.run()
