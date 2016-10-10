@@ -71,14 +71,15 @@ def explain_state(input_data, answer=None, correct_answer=None):
   enemycards = d['enemy']
   supply = d['supply']
   txt = ""
-  txt += "<Supply>"
+  txt += config.color("[coin:%d, buy:%d, turn:%d, minusCost:%d]" % (coin, buy, turn, minusCost), BOLD + RED)
+  txt += "\n" + "<Supply>"
   txt += "\n" +  ",  ".join(["%s(%s)[%d]" % (CARDLIST[_id]["名前"], CARDLIST[_id]["コスト"], supply[i]) for i, _id in enumerate(supply_ids[:7])])
   txt += "\n" +  ",  ".join(["%s(%s)[%d]" % (CARDLIST[_id]["名前"], CARDLIST[_id]["コスト"], supply[i+7]) for i, _id in enumerate(supply_ids[7:])])
   
-  txt += "\n" +  "<Player>   " + config.color("[coin:%d, buy:%d, turn:%d, minusCost:%d]" % (coin, buy, turn, minusCost), BOLD + RED)
+  txt += "\n" +  "<Player Cards>   "
   txt += "\n" +  ",  ".join(["%s[%d]" % (CARDLIST[_id]["名前"], playercards[i]) for i, _id in enumerate(supply_ids) if playercards[i] != 0 ])
 
-  txt += "\n" +  "<Enemy>"
+  txt += "\n" +  "<Enemy Cards>"
   txt += "\n" +  ",  ".join(["%s[%d]" % (CARDLIST[_id]["名前"], enemycards[i]) for i, _id in enumerate(supply_ids) if enemycards[i] != 0 ])
   if answer:
     txt += "\n" +  "<Buy>"

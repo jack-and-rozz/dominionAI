@@ -133,7 +133,7 @@ class GainModel(DominionBaseModel):
     continuable = True
     if next_input[idx['buy']] == 0:
       continuable = False
-    elif len(supply) - np.count_nonzero(supply) >= 3:
+    elif len(supply[1:]) - np.count_nonzero(supply[1:]) >= 3:
       continuable = False
     return [next_input], continuable
   def buy_beamsearch(self, sess, input_data, targets):

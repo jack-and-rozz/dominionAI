@@ -68,7 +68,7 @@ FLAGS = tf.app.flags.FLAGS
 TMP_FLAGS = ['mode', 'log_file']
 if FLAGS.log_file: 
   logger = utils.logManager(handler=FileHandler(FLAGS.train_dir + '/' + FLAGS.log_file))
-  logger = utils.logManager()
+  #logger = utils.logManager()
 else:
   logger = utils.logManager()
 
@@ -123,25 +123,26 @@ def gain_test(sess, model=None):
     FLAGS.batch_size = 1
     model = create_model(sess, n_feature, n_target)
 
-  for i in xrange(test_batch.size):
-    input_data, targets = test_batch.get(FLAGS.batch_size)
-    buy_results = sorted(model.buy(sess, input_data))
-    answer = [i for (_, i, _) in buy_results]
-    correct_answer = sorted(test_data[i]['answer'])
+  for batch_idx in xrange(test_batch.size):
+    input_data, targets = test_batch.get(1)
+    buy_results = model.buy(sess, input_data)
+    answer = sorted([ans for (_, ans, _) in buy_results])
+    probs = ["%d: "%(depth+1) + prob for i, (depth, _, prob) in enumerate(buy_results)]
+    correct_answer = sorted(test_data[batch_idx]['answer'])
     while True:
       if 0 in answer and len(answer) > 1:
         answer.remove(0)
       else:
         break
-    result_text = data_utils.explain_state(input_data[0], answer, correct_answer)
     succeeded.append(answer == correct_answer)
+    result_text = data_utils.explain_state(input_data[0], answer, correct_answer)
+    result_text += "<Buy probabilities>\n" + "\n".join(probs) + "\n"
     result_texts.append(result_text)
     
   with open(FLAGS.train_dir + "/tests/result.ep%d" % model.global_step.eval(), 'w') as f:
     for i, t in enumerate(result_texts):
       f.write("--- Test %d --- " % i + "\n")
       f.write(t + "\n")
-    f.write("\n")
     f.write("Success Rate: %.4f (%d/%d)" % (1.0 * succeeded.count(True)/len(succeeded), 
                                             succeeded.count(True), 
                                             len(succeeded)))
