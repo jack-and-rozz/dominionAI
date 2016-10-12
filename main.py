@@ -227,11 +227,11 @@ def train_random(sess, test_func=None):
 
 def main(_):
   create_dir()
-  save_config()
   with tf.Session(config=tf.ConfigProto(log_device_placement=False)) as sess:
     logger.info(str(FLAGS.__dict__['__flags']))
     if FLAGS.mode == '--train_random':
       logger.info("[ TRAIN RANDOM ]")
+      save_config()
       train_random(sess, gain_test)
     elif FLAGS.mode == '--test':
       logger.info("[ TEST ]")
