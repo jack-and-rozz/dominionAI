@@ -8,7 +8,7 @@ import collections
 
 # 入力特徴量はFEATURES + stateVec
 FEATURES = ['coin', 'buy', 'minusCost', 'turn']
-#deck,hand,discard,field,enemy,supply,isIncludedSupply (cardmax*7次元)
+# deck,hand,discard,field,enemy,supply,isIncludedSupply (cardmax*7次元)
 STATEVEC = ['deck', 'hand', 'discard', 
             'field', 'enemy', 'supply', 'isIncludedSupply']
 N_STATE = len(STATEVEC) 
