@@ -67,8 +67,8 @@ tf.app.flags.DEFINE_string("mode", "", "")
 FLAGS = tf.app.flags.FLAGS
 TMP_FLAGS = ['mode', 'log_file']
 if FLAGS.log_file: 
-  logger = utils.logManager(handler=FileHandler(FLAGS.train_dir + '/' + FLAGS.log_file))
-  #logger = utils.logManager()
+  #logger = utils.logManager(handler=FileHandler(FLAGS.train_dir + '/' + FLAGS.log_file))
+  logger = utils.logManager()
 else:
   logger = utils.logManager()
 
@@ -134,14 +134,19 @@ def gain_test(sess, model=None):
         answer.remove(0)
       else:
         break
-    succeeded.append(answer == correct_answer)
-    result_text = data_utils.explain_state(input_data[0], answer, correct_answer)
+    is_succeeded = True if answer == correct_answer else False
+    succeeded.append(is_succeeded)
+    if is_succeeded:
+      result_text = "--- ○ Test %d --- " % batch_idx + "\n"
+      result_text = config.color(result_text, config.BOLD + config.BLACK)
+    else:
+      result_text = "--- × Test %d --- " % batch_idx + "\n"
+    result_text += data_utils.explain_state(input_data[0], answer, correct_answer)
     result_text += "<Buy probabilities>\n" + "\n".join(probs) + "\n"
     result_texts.append(result_text)
     
   with open(FLAGS.train_dir + "/tests/result.ep%d" % model.global_step.eval(), 'w') as f:
     for i, t in enumerate(result_texts):
-      f.write("--- Test %d --- " % i + "\n")
       f.write(t + "\n")
     f.write("Success Rate: %.4f (%d/%d)" % (1.0 * succeeded.count(True)/len(succeeded), 
                                             succeeded.count(True), 
