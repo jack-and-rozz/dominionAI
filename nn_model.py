@@ -6,30 +6,31 @@ import numpy as np
 import data_utils as du
 
 class DominionBaseModel(object):
-  def __init__(self, flags, n_feature, n_target, mode="train"):
+  def __init__(self, flags, n_feature, n_target, reuse=None):
     self.hidden_size = flags.hidden_size
     self.num_layers = flags.num_layers
     self.max_gradient_norm = flags.max_gradient_norm
     self.batch_size = batch_size = flags.batch_size
     self.learning_rate = flags.learning_rate
-    self.mode = mode
     self.n_feature = n_feature
     self.n_target = n_target
-    self.global_step = tf.Variable(0, name='global_step', trainable=False)
     self.max_to_keep = flags.max_to_keep
+    self.keep_prob = flags.keep_prob if reuse == None else 1.0
+    
+    self.inputs = inputs = tf.placeholder(tf.float32, [None, n_feature], name='inputs')
+    self.targets = tf.placeholder(tf.float32, [None, n_target], name='targets')
 
-    self.train_inputs = tf.placeholder(tf.float32, [None, n_feature])
-    self.train_targets = tf.placeholder(tf.float32, [None, n_target])
-    self.test_inputs = tf.placeholder(tf.float32, [None, n_feature])
-    self.test_targets = tf.placeholder(tf.float32, [None, n_target])
+    if self.keep_prob < 1:
+      inputs = tf.nn.dropout(inputs, self.keep_prob)
 
-    self.train_logits_op = self.inference(self.train_inputs)
-    self.train_loss_op = self.loss(self.train_logits_op, self.train_targets)
-    self.train_op = self.optimize(self.train_loss_op)
-
-    self.test_logits_op = self.inference(self.test_inputs, reuse=True)
-    self.test_loss_op = self.loss(self.test_logits_op, self.test_targets)
-    self.test_probs_op = tf.nn.softmax(self.test_logits_op)
+    with vs.variable_scope('Dominion', reuse=reuse) as scope:
+      self.global_step = tf.get_variable('global_step', trainable=False, shape=[],
+                                     initializer=tf.constant_initializer(0))
+      #self.global_step = tf.Variable(0, 'global_step', trainable=False)
+    self.logits_op = self.inference(inputs, reuse=reuse)
+    self.loss_op = self.loss(self.logits_op, self.targets)
+    self.train_op = self.optimize(self.loss_op)
+    self.probs_op = tf.nn.softmax(self.logits_op)
 
   def __str__(self):
     return str(self.__dict__)
@@ -82,12 +83,12 @@ class GainModel(DominionBaseModel):
   def buy(self, sess, input_data, depth=0):
     #とりあえずバッチ実行でテストは考えない
     test_feed = {
-      self.test_inputs : input_data,
+      self.inputs : input_data,
     }
     
     #t_logits = sess.run(self.logits_op, test_feed)
     #target = self.select_validly(input_data[0], t_logits[0])
-    t_probs = sess.run(self.test_probs_op, test_feed)
+    t_probs = sess.run(self.probs_op, test_feed)
     target, probs = self.select_validly(input_data[0], t_probs[0])
     next_input, continuable = self.update_state(input_data[0], target)
     res = [(depth, target, probs)]

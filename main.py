@@ -35,7 +35,7 @@ tf.app.flags.DEFINE_string("test_file", "", "Test file")
 
 tf.app.flags.DEFINE_string("train_dir", "models/tmp", "Training directory.")
 tf.app.flags.DEFINE_string("task_name", "Gain", "")
-tf.app.flags.DEFINE_float("keep_prob", 1.0,
+tf.app.flags.DEFINE_float("keep_prob", 0.75,
                           "the keeping probability of active neurons in dropout")
 tf.app.flags.DEFINE_float("learning_rate", 1e-4, "Learning rate.")
 tf.app.flags.DEFINE_float("learning_rate_decay_factor", 0.99,
@@ -67,8 +67,8 @@ tf.app.flags.DEFINE_string("mode", "", "")
 FLAGS = tf.app.flags.FLAGS
 TMP_FLAGS = ['mode', 'log_file']
 if FLAGS.log_file: 
-  #logger = utils.logManager(handler=FileHandler(FLAGS.train_dir + '/' + FLAGS.log_file))
-  logger = utils.logManager()
+  logger = utils.logManager(handler=FileHandler(FLAGS.train_dir + '/' + FLAGS.log_file))
+  #logger = utils.logManager()
 else:
   logger = utils.logManager()
 
@@ -90,20 +90,21 @@ def save_config():
         f.write('%s=%s\n' % (k, str(v)))
 
 @utils.timewatch(logger)
-def create_model(sess, n_feature, n_target):
+def create_model(sess, n_feature, n_target, reuse=None):
 
   model = nn_model.GainModel(FLAGS, 
                              n_feature=n_feature,
                              n_target=n_target,
-                             mode="train")
+                             reuse=reuse)
   ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir + '/checkpoints')
-  if ckpt and gfile.Exists(ckpt.model_checkpoint_path):
-    logger.info("Reading model parameters from %s" % ckpt.model_checkpoint_path)
-    saver = tf.train.Saver(tf.all_variables(), max_to_keep=FLAGS.max_to_keep)
-    saver.restore(sess, ckpt.model_checkpoint_path)
-  else:
-    logger.info("Created model with fresh parameters.")
-    tf.initialize_all_variables().run()
+  if reuse == None:
+    if ckpt and gfile.Exists(ckpt.model_checkpoint_path):
+      logger.info("Reading model parameters from %s" % ckpt.model_checkpoint_path)
+      saver = tf.train.Saver(tf.all_variables(), max_to_keep=FLAGS.max_to_keep)
+      saver.restore(sess, ckpt.model_checkpoint_path)
+    else:
+      logger.info("Created model with fresh parameters.")
+      tf.initialize_all_variables().run()
 
   return model
 
@@ -121,7 +122,8 @@ def gain_test(sess, model=None):
   result_texts = []
   if not model:
     FLAGS.batch_size = 1
-    model = create_model(sess, n_feature, n_target)
+    FLAGS.keep_prob = 1.0
+    model = create_model(sess, n_feature, n_target, reuse=None)
 
   for batch_idx in xrange(test_batch.size):
     input_data, targets = test_batch.get(1)
@@ -164,14 +166,13 @@ def train_random(sess, test_func=None):
 
   n_feature = train_batch.n_feature
   n_target = train_batch.n_target
-  model = create_model(sess, n_feature, n_target)
-  
+  model = create_model(sess, n_feature, n_target, reuse=None)
   summary_writer = tf.train.SummaryWriter(FLAGS.train_dir + '/summaries', 
                                             graph=sess.graph)
   saver = tf.train.Saver(tf.all_variables(), max_to_keep=FLAGS.max_to_keep)
   # 以降、opsの定義禁止
   t_ave_loss, step_time = 0.0, 0.0
-  logits_op, loss_op, train_op = model.train_logits_op, model.train_loss_op, model.train_op
+  logits_op, loss_op, train_op = model.logits_op, model.loss_op, model.train_op
   summary_op = tf.merge_all_summaries()
   logger.info("Start training")
 
@@ -179,8 +180,8 @@ def train_random(sess, test_func=None):
     input_data, targets = train_batch.get(FLAGS.batch_size)
     
     train_feed = {
-      model.train_inputs : input_data,
-      model.train_targets : targets,
+      model.inputs : input_data,
+      model.targets : targets,
     }
     #print input_data, targets
     t = time.time()
@@ -198,8 +199,8 @@ def train_random(sess, test_func=None):
       for _ in xrange(n_eval):
         input_data, targets = valid_batch.get(FLAGS.batch_size)
         valid_feed = {
-          model.train_inputs : input_data,
-          model.train_targets : targets,
+          model.inputs : input_data,
+          model.targets : targets,
         }
         v_logits, v_loss = sess.run([logits_op, loss_op], valid_feed)
         v_ave_ppx += math.exp(v_loss)/(n_eval) if v_loss < 300 else float('inf')
@@ -209,15 +210,18 @@ def train_random(sess, test_func=None):
       logger.info("Train ppx %.4f" % t_ave_ppx)
       logger.info("Valid ppx %.4f" % v_ave_ppx)
       t_ave_loss, step_time = 0.0, 0.0
-      if test_func:
-        logger.info("Performing tests...")
-        test_func(sess, model)
-
       #summary_str = sess.run(summary_op, feed_dict=train_feed)
       #summary_writer.add_summary(summary_str, step)
+      
+      if test_func:
+        t_model = create_model(sess, n_feature, n_target, reuse=True)
+        logger.info("Performing tests...")
+        test_func(sess, t_model)
+
       # Save checkpoint
       checkpoint_path = os.path.join(FLAGS.train_dir, "checkpoints/model.ckpt")
       saver.save(sess, checkpoint_path, global_step=model.global_step)
+
     if step >= FLAGS.max_step:
       break;
 
@@ -225,6 +229,7 @@ def main(_):
   create_dir()
   save_config()
   with tf.Session(config=tf.ConfigProto(log_device_placement=False)) as sess:
+    logger.info(str(FLAGS.__dict__['__flags']))
     if FLAGS.mode == '--train_random':
       logger.info("[ TRAIN RANDOM ]")
       train_random(sess, gain_test)
